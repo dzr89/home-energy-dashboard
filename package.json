@@ -1,0 +1,24 @@
+{
+  "name": "home-energy-dashboard",
+  "version": "1.0.0",
+  "description": "Real-time energy monitoring dashboard for Home Assistant",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0",
+    "msw": "^2.2.0",
+    "vitest": "^1.3.0",
+    "@vitest/coverage-v8": "^1.3.0"
+  },
+  "keywords": [
+    "home-assistant",
+    "energy",
+    "dashboard",
+    "solar"
+  ],
+  "license": "MIT"
+}
