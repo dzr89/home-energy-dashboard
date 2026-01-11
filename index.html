@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Content Security Policy - restricts resource loading for security -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src *; img-src 'self' data:;">
     <title>Energy Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -943,6 +945,65 @@
     </div>
 
     <script>
+        // ============================================
+        // Security & Utility Functions
+        // ============================================
+
+        // Sanitize text to prevent XSS attacks
+        function sanitizeText(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        // Validate sensor entity ID format (Home Assistant format: domain.entity_name)
+        function isValidEntityId(entityId) {
+            if (!entityId || typeof entityId !== 'string') return false;
+            // Home Assistant entity IDs follow pattern: domain.entity_name
+            // Domain and entity name can contain lowercase letters, numbers, and underscores
+            const pattern = /^[a-z_][a-z0-9_]*\.[a-z0-9_]+$/;
+            return pattern.test(entityId) && entityId.length <= 255;
+        }
+
+        // Validate URL format
+        function isValidUrl(url) {
+            if (!url || typeof url !== 'string') return true; // Empty URL is allowed (for HA-hosted)
+            try {
+                const parsed = new URL(url);
+                return ['http:', 'https:'].includes(parsed.protocol);
+            } catch {
+                return false;
+            }
+        }
+
+        // Check if URL uses HTTPS (for security warnings)
+        function isSecureUrl(url) {
+            if (!url) return true; // Empty URL means hosted on HA
+            try {
+                return new URL(url).protocol === 'https:';
+            } catch {
+                return false;
+            }
+        }
+
+        // Debounce function to prevent rapid repeated calls
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // ============================================
+        // Configuration
+        // ============================================
+
         // Default sensor configuration
         const DEFAULT_SENSORS = {
             solarPower: 'sensor.enphase_current_power',
@@ -969,9 +1030,20 @@
         function loadConfig() {
             const saved = localStorage.getItem('energyDashboardConfig');
             if (saved) {
-                const parsed = JSON.parse(saved);
-                CONFIG = { ...CONFIG, ...parsed };
-                return true;
+                try {
+                    const parsed = JSON.parse(saved);
+                    // Validate loaded config values
+                    if (parsed.haUrl && !isValidUrl(parsed.haUrl)) {
+                        console.warn('Invalid URL in saved config, ignoring');
+                        delete parsed.haUrl;
+                    }
+                    CONFIG = { ...CONFIG, ...parsed };
+                    return true;
+                } catch (e) {
+                    console.error('Failed to parse saved config:', e);
+                    localStorage.removeItem('energyDashboardConfig');
+                    return false;
+                }
             }
             return false;
         }
@@ -999,20 +1071,49 @@
 
         // Setup modal handlers
         document.getElementById('saveConfig').addEventListener('click', () => {
-            CONFIG.haUrl = document.getElementById('configHaUrl').value.trim();
-            CONFIG.token = document.getElementById('configToken').value.trim();
-            
+            const haUrl = document.getElementById('configHaUrl').value.trim();
+            const token = document.getElementById('configToken').value.trim();
+
+            // Validate URL
+            if (haUrl && !isValidUrl(haUrl)) {
+                showError('Invalid Home Assistant URL format. Please enter a valid HTTP or HTTPS URL.');
+                return;
+            }
+
+            // Security warning for HTTP
+            if (haUrl && !isSecureUrl(haUrl)) {
+                console.warn('Security Warning: Using HTTP instead of HTTPS. Your token will be transmitted in plaintext.');
+            }
+
             // Get sensor config if provided
             const solarPower = document.getElementById('configSolarPower').value.trim();
             const solarDaily = document.getElementById('configSolarDaily').value.trim();
             const consumptionPower = document.getElementById('configConsumptionPower').value.trim();
             const consumptionDaily = document.getElementById('configConsumptionDaily').value.trim();
-            
+
+            // Validate sensor entity IDs
+            const sensorInputs = [
+                { value: solarPower, name: 'Solar Power Sensor' },
+                { value: solarDaily, name: 'Solar Daily Sensor' },
+                { value: consumptionPower, name: 'Consumption Power Sensor' },
+                { value: consumptionDaily, name: 'Consumption Daily Sensor' }
+            ];
+
+            for (const sensor of sensorInputs) {
+                if (sensor.value && !isValidEntityId(sensor.value)) {
+                    showError(`Invalid entity ID format for ${sensor.name}. Expected format: domain.entity_name (e.g., sensor.my_sensor)`);
+                    return;
+                }
+            }
+
+            CONFIG.haUrl = haUrl;
+            CONFIG.token = token;
+
             if (solarPower) CONFIG.sensors.solarPower = solarPower;
             if (solarDaily) CONFIG.sensors.solarToday = solarDaily;
             if (consumptionPower) CONFIG.sensors.consumptionPower = consumptionPower;
             if (consumptionDaily) CONFIG.sensors.consumptionDaily = consumptionDaily;
-            
+
             saveConfig();
             hideSetupModal();
             init();
@@ -1025,22 +1126,52 @@
         let historyChart = null;
         let weekdayChart = null;
         let refreshTimer = null;
+        let chartRefreshTimer = null;
 
-        // API Helper
+        // API Helper with timeout and rate limiting
+        const API_TIMEOUT = 10000; // 10 second timeout
+        let lastApiCall = 0;
+        const MIN_API_INTERVAL = 100; // Minimum 100ms between API calls
+
         async function fetchHA(endpoint) {
+            // Basic rate limiting
+            const now = Date.now();
+            const timeSinceLastCall = now - lastApiCall;
+            if (timeSinceLastCall < MIN_API_INTERVAL) {
+                await new Promise(resolve => setTimeout(resolve, MIN_API_INTERVAL - timeSinceLastCall));
+            }
+            lastApiCall = Date.now();
+
+            // Validate endpoint to prevent path traversal
+            if (!endpoint || typeof endpoint !== 'string' || endpoint.includes('..')) {
+                throw new Error('Invalid endpoint');
+            }
+
             const url = `${CONFIG.haUrl}/api/${endpoint}`;
+
+            // Create AbortController for timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+
             try {
                 const response = await fetch(url, {
                     headers: {
                         'Authorization': `Bearer ${CONFIG.token}`,
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    signal: controller.signal
                 });
+                clearTimeout(timeoutId);
+
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 return await response.json();
             } catch (error) {
+                clearTimeout(timeoutId);
+                if (error.name === 'AbortError') {
+                    throw new Error('Request timeout - Home Assistant is not responding');
+                }
                 console.error('HA API Error:', error);
                 throw error;
             }
@@ -1068,28 +1199,42 @@
             text.textContent = message;
         }
 
-        // Show error
+        // Show error (using safe DOM manipulation to prevent XSS)
         function showError(message) {
             const container = document.getElementById('errorContainer');
-            container.innerHTML = `<div class="error-message">${message}</div>`;
+            // Clear existing content safely
+            container.textContent = '';
+            // Create error element safely using DOM APIs
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = message; // textContent is XSS-safe
+            container.appendChild(errorDiv);
         }
 
         function clearError() {
-            document.getElementById('errorContainer').innerHTML = '';
+            const container = document.getElementById('errorContainer');
+            container.textContent = '';
         }
 
-        // Format numbers
+        // Format numbers - returns sanitized HTML string
+        // Note: Values are numeric and sanitized, safe for innerHTML use
         function formatPower(watts) {
             if (watts === null || watts === undefined || isNaN(watts)) return '--';
-            if (watts >= 1000) {
-                return `${(watts / 1000).toFixed(1)}<span class="card-unit">kW</span>`;
+            // Ensure watts is a number to prevent injection
+            const numWatts = Number(watts);
+            if (isNaN(numWatts)) return '--';
+            if (numWatts >= 1000) {
+                return `${(numWatts / 1000).toFixed(1)}<span class="card-unit">kW</span>`;
             }
-            return `${Math.round(watts)}<span class="card-unit">W</span>`;
+            return `${Math.round(numWatts)}<span class="card-unit">W</span>`;
         }
 
         function formatEnergy(kwh) {
             if (kwh === null || kwh === undefined || isNaN(kwh)) return '--';
-            return kwh.toFixed(1);
+            // Ensure kwh is a number to prevent injection
+            const numKwh = Number(kwh);
+            if (isNaN(numKwh)) return '--';
+            return numKwh.toFixed(1);
         }
 
         // Update insights panel
@@ -1423,14 +1568,18 @@
             });
         }
 
-        // Navigation
-        document.querySelectorAll('.nav-btn').forEach(btn => {
+        // Navigation (cached DOM queries for performance)
+        const navButtons = document.querySelectorAll('.nav-btn');
+        const views = document.querySelectorAll('.view');
+
+        navButtons.forEach(btn => {
             btn.addEventListener('click', () => {
-                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+                // Use cached collections instead of re-querying
+                navButtons.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
 
                 const viewId = btn.dataset.view + 'View';
-                document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+                views.forEach(v => v.classList.remove('active'));
                 document.getElementById(viewId).classList.add('active');
             });
         });
@@ -1445,26 +1594,71 @@
             document.getElementById('startDate').value = start.toISOString().split('T')[0];
         }
 
-        // Load history button
-        document.getElementById('loadHistory').addEventListener('click', async () => {
+        // Load history button (debounced to prevent rapid repeated calls)
+        const loadHistoryHandler = debounce(async () => {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
-            
+
             if (!startDate || !endDate) {
                 showError('Please select both start and end dates');
+                return;
+            }
+
+            // Validate date range
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            if (start > end) {
+                showError('Start date must be before end date');
+                return;
+            }
+
+            // Limit date range to prevent excessive API calls (max 90 days)
+            const maxDays = 90;
+            const daysDiff = (end - start) / (1000 * 60 * 60 * 24);
+            if (daysDiff > maxDays) {
+                showError(`Date range too large. Maximum ${maxDays} days allowed.`);
                 return;
             }
 
             try {
                 document.getElementById('historyProduction').textContent = 'Loading...';
                 document.getElementById('historyConsumption').textContent = 'Loading...';
-                
+
                 showError('Historical aggregation requires recorder data. Check Home Assistant for detailed history.');
-                
+
             } catch (error) {
                 showError(`Failed to load history: ${error.message}`);
             }
-        });
+        }, 500); // 500ms debounce
+
+        document.getElementById('loadHistory').addEventListener('click', loadHistoryHandler);
+
+        // Cleanup function to destroy charts and clear timers
+        function cleanup() {
+            // Clear all timers
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+                refreshTimer = null;
+            }
+            if (chartRefreshTimer) {
+                clearInterval(chartRefreshTimer);
+                chartRefreshTimer = null;
+            }
+
+            // Destroy existing chart instances to prevent memory leaks
+            if (todayChart) {
+                todayChart.destroy();
+                todayChart = null;
+            }
+            if (historyChart) {
+                historyChart.destroy();
+                historyChart = null;
+            }
+            if (weekdayChart) {
+                weekdayChart.destroy();
+                weekdayChart = null;
+            }
+        }
 
         // Initialize
         async function init() {
@@ -1476,23 +1670,21 @@
 
             hideSetupModal();
 
+            // Clean up any existing state before re-initializing
+            cleanup();
+
             initTodayChart();
             initHistoryChart();
             initWeekdayChart();
             initDatePickers();
 
-            // Clear any existing timer
-            if (refreshTimer) {
-                clearInterval(refreshTimer);
-            }
-
             // Initial update
             await updateLiveDashboard();
             await updateTodayChart();
 
-            // Set up refresh interval
+            // Set up refresh intervals (now properly tracked)
             refreshTimer = setInterval(updateLiveDashboard, CONFIG.refreshInterval);
-            setInterval(updateTodayChart, 60000);
+            chartRefreshTimer = setInterval(updateTodayChart, 60000);
         }
 
         // Start
