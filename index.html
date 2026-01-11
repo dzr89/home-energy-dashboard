@@ -1,0 +1,1506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0b;
+            --bg-secondary: #111113;
+            --bg-card: #161618;
+            --bg-card-hover: #1a1a1d;
+            --border: #2a2a2e;
+            --text-primary: #fafafa;
+            --text-secondary: #888890;
+            --text-muted: #555558;
+            --solar: #22c55e;
+            --solar-dim: #166534;
+            --solar-glow: rgba(34, 197, 94, 0.15);
+            --consumption: #f59e0b;
+            --consumption-dim: #92400e;
+            --consumption-glow: rgba(245, 158, 11, 0.15);
+            --grid-export: #3b82f6;
+            --grid-import: #ef4444;
+            --accent: #22c55e;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--solar) 0%, var(--solar-dim) 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .logo h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .settings-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 0.5rem 0.75rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        .settings-btn:hover {
+            background: var(--bg-card-hover);
+            color: var(--text-primary);
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--solar);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.error {
+            background: var(--grid-import);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Navigation */
+        nav {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .nav-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .nav-btn:hover {
+            background: var(--bg-card-hover);
+            color: var(--text-primary);
+        }
+
+        .nav-btn.active {
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border-color: var(--text-primary);
+        }
+
+        /* Views */
+        .view {
+            display: none;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        /* Live Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            transition: all 0.2s;
+        }
+
+        .card:hover {
+            background: var(--bg-card-hover);
+            border-color: #3a3a3e;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .card-label {
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .card-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        }
+
+        .card-icon.solar {
+            background: var(--solar-glow);
+            color: var(--solar);
+        }
+
+        .card-icon.consumption {
+            background: var(--consumption-glow);
+            color: var(--consumption);
+        }
+
+        .card-icon.net {
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--grid-export);
+        }
+
+        .card-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2.5rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.25rem;
+        }
+
+        .card-value.solar {
+            color: var(--solar);
+        }
+
+        .card-value.consumption {
+            color: var(--consumption);
+        }
+
+        .card-value.positive {
+            color: var(--solar);
+        }
+
+        .card-value.negative {
+            color: var(--grid-import);
+        }
+
+        .card-unit {
+            font-size: 1.25rem;
+            font-weight: 400;
+            color: var(--text-secondary);
+            margin-left: 0.25rem;
+        }
+
+        .card-subtitle {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+        }
+
+        /* Power Flow Visualization */
+        .power-flow-card {
+            grid-column: span 3;
+        }
+
+        @media (max-width: 1024px) {
+            .power-flow-card {
+                grid-column: span 2;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .power-flow-card {
+                grid-column: span 1;
+            }
+        }
+
+        .power-flow {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 2rem 0;
+            position: relative;
+        }
+
+        .flow-node {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.75rem;
+            z-index: 2;
+        }
+
+        .flow-icon {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            position: relative;
+        }
+
+        .flow-icon.solar {
+            background: linear-gradient(135deg, var(--solar) 0%, var(--solar-dim) 100%);
+            box-shadow: 0 0 40px var(--solar-glow);
+        }
+
+        .flow-icon.home {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            box-shadow: 0 0 40px rgba(59, 130, 246, 0.2);
+        }
+
+        .flow-icon.grid {
+            background: linear-gradient(135deg, #6b7280 0%, #374151 100%);
+            box-shadow: 0 0 40px rgba(107, 114, 128, 0.2);
+        }
+
+        .flow-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+        }
+
+        .flow-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .flow-lines {
+            position: absolute;
+            left: 100px;
+            right: 100px;
+            top: 50%;
+            transform: translateY(-50%);
+            height: 4px;
+            display: flex;
+            z-index: 1;
+        }
+
+        .flow-line {
+            flex: 1;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .flow-line::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--border);
+        }
+
+        .flow-line.active::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            width: 40%;
+            height: 100%;
+            border-radius: 2px;
+        }
+
+        .flow-line.solar-to-home.active::after {
+            background: linear-gradient(90deg, var(--solar), transparent);
+            animation: flowRight 1.5s infinite linear;
+        }
+
+        .flow-line.home-to-grid.exporting::after {
+            background: linear-gradient(90deg, var(--grid-export), transparent);
+            animation: flowRight 1.5s infinite linear;
+        }
+
+        .flow-line.home-to-grid.importing::after {
+            background: linear-gradient(270deg, var(--grid-import), transparent);
+            animation: flowLeft 1.5s infinite linear;
+        }
+
+        @keyframes flowRight {
+            0% { left: -40%; }
+            100% { left: 100%; }
+        }
+
+        @keyframes flowLeft {
+            0% { right: -40%; left: auto; }
+            100% { right: 100%; left: auto; }
+        }
+
+        /* Chart Section */
+        .chart-section {
+            margin-top: 2rem;
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .chart-title {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .chart-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .chart-btn {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 0.375rem 0.75rem;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .chart-btn:hover,
+        .chart-btn.active {
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border-color: var(--text-primary);
+        }
+
+        .chart-container {
+            height: 300px;
+            position: relative;
+        }
+
+        /* History View */
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .date-picker {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .date-input {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 0.625rem 1rem;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.875rem;
+        }
+
+        .date-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        /* Loading State */
+        .loading {
+            opacity: 0.5;
+        }
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: var(--grid-import);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+        }
+
+        /* Setup Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-overlay.hidden {
+            display: none;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .modal h2 {
+            margin-bottom: 0.5rem;
+        }
+
+        .modal p {
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+            font-size: 0.875rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .form-group input {
+            width: 100%;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.875rem;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-group small {
+            display: block;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            margin-top: 0.25rem;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1.5rem;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            border: none;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-card-hover);
+        }
+
+        /* Footer */
+        footer {
+            margin-top: 3rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+        }
+
+        footer a {
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <!-- Setup Modal -->
+    <div class="modal-overlay" id="setupModal">
+        <div class="modal">
+            <h2>⚡ Energy Dashboard Setup</h2>
+            <p>Connect to your Home Assistant instance to display real-time energy data.</p>
+            
+            <div class="form-group">
+                <label>Home Assistant URL</label>
+                <input type="text" id="configHaUrl" placeholder="http://homeassistant.local:8123">
+                <small>Leave empty if hosting on Home Assistant</small>
+            </div>
+            
+            <div class="form-group">
+                <label>Long-Lived Access Token</label>
+                <input type="password" id="configToken" placeholder="eyJhbGciOiJ...">
+                <small>Create in HA: Profile → Long-Lived Access Tokens</small>
+            </div>
+
+            <details style="margin-top: 1rem;">
+                <summary style="cursor: pointer; color: var(--text-secondary); font-size: 0.875rem;">Advanced: Sensor Configuration</summary>
+                <div style="margin-top: 1rem;">
+                    <div class="form-group">
+                        <label>Solar Power Sensor (W)</label>
+                        <input type="text" id="configSolarPower" placeholder="sensor.enphase_current_power">
+                    </div>
+                    <div class="form-group">
+                        <label>Solar Daily Sensor (kWh)</label>
+                        <input type="text" id="configSolarDaily" placeholder="sensor.solar_production_today_kwh">
+                    </div>
+                    <div class="form-group">
+                        <label>Consumption Power Sensor (W)</label>
+                        <input type="text" id="configConsumptionPower" placeholder="sensor.sense_energy">
+                    </div>
+                    <div class="form-group">
+                        <label>Consumption Daily Sensor (kWh)</label>
+                        <input type="text" id="configConsumptionDaily" placeholder="sensor.sense_daily_energy">
+                    </div>
+                </div>
+            </details>
+            
+            <div class="modal-actions">
+                <button class="btn btn-primary" id="saveConfig">Connect</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">☀️</div>
+                <h1>Energy Dashboard</h1>
+            </div>
+            <div class="header-actions">
+                <button class="settings-btn" id="openSettings" title="Settings">⚙️</button>
+                <div class="status">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Connecting...</span>
+                </div>
+            </div>
+        </header>
+
+        <nav>
+            <button class="nav-btn active" data-view="live">Live</button>
+            <button class="nav-btn" data-view="history">History</button>
+            <button class="nav-btn" data-view="insights">Insights</button>
+        </nav>
+
+        <div id="errorContainer"></div>
+
+        <!-- Live View -->
+        <div id="liveView" class="view active">
+            <div class="dashboard-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">Solar Production</span>
+                        <div class="card-icon solar">☀️</div>
+                    </div>
+                    <div class="card-value solar" id="solarPower">--</div>
+                    <div class="card-subtitle">Current output</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">Home Consumption</span>
+                        <div class="card-icon consumption">🏠</div>
+                    </div>
+                    <div class="card-value consumption" id="consumption">--</div>
+                    <div class="card-subtitle">Current usage</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">Net Power</span>
+                        <div class="card-icon net">⚡</div>
+                    </div>
+                    <div class="card-value" id="netPower">--</div>
+                    <div class="card-subtitle" id="netStatus">Calculating...</div>
+                </div>
+
+                <div class="card power-flow-card">
+                    <div class="card-header">
+                        <span class="card-label">Power Flow</span>
+                    </div>
+                    <div class="power-flow">
+                        <div class="flow-node">
+                            <div class="flow-icon solar">☀️</div>
+                            <span class="flow-label">Solar</span>
+                            <span class="flow-value solar" id="flowSolar">-- W</span>
+                        </div>
+                        <div class="flow-node">
+                            <div class="flow-icon home">🏠</div>
+                            <span class="flow-label">Home</span>
+                            <span class="flow-value consumption" id="flowHome">-- W</span>
+                        </div>
+                        <div class="flow-node">
+                            <div class="flow-icon grid">⚡</div>
+                            <span class="flow-label">Grid</span>
+                            <span class="flow-value" id="flowGrid">-- W</span>
+                        </div>
+                        <div class="flow-lines">
+                            <div class="flow-line solar-to-home" id="flowLineSolar"></div>
+                            <div class="flow-line home-to-grid" id="flowLineGrid"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">Today's Production</span>
+                        <div class="card-icon solar">📊</div>
+                    </div>
+                    <div class="card-value solar" id="todayProduction">--<span class="card-unit">kWh</span></div>
+                    <div class="card-subtitle">Solar energy generated</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">Today's Consumption</span>
+                        <div class="card-icon consumption">📈</div>
+                    </div>
+                    <div class="card-value consumption" id="todayConsumption">--<span class="card-unit">kWh</span></div>
+                    <div class="card-subtitle">Energy used</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-label">Today's Net</span>
+                        <div class="card-icon net">💰</div>
+                    </div>
+                    <div class="card-value" id="todayNet">--<span class="card-unit">kWh</span></div>
+                    <div class="card-subtitle" id="todayNetStatus">--</div>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3 class="chart-title">Today's Energy</h3>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="todayChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- History View -->
+        <div id="historyView" class="view">
+            <div class="history-header">
+                <h2>Historical Data</h2>
+                <div class="date-picker">
+                    <input type="date" class="date-input" id="startDate">
+                    <span style="color: var(--text-secondary)">to</span>
+                    <input type="date" class="date-input" id="endDate">
+                    <button class="chart-btn" id="loadHistory">Load</button>
+                </div>
+            </div>
+
+            <div class="stats-grid" id="historyStats">
+                <div class="stat-card">
+                    <div class="stat-label">Total Production</div>
+                    <div class="stat-value solar" id="historyProduction">-- kWh</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Consumption</div>
+                    <div class="stat-value consumption" id="historyConsumption">-- kWh</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Net Energy</div>
+                    <div class="stat-value" id="historyNet">-- kWh</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Self-Consumption</div>
+                    <div class="stat-value" id="historySelfConsumption">--%</div>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3 class="chart-title">Daily Energy Comparison</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="historyChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Insights View -->
+        <div id="insightsView" class="view">
+            <h2 style="margin-bottom: 2rem;">Insights</h2>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Lifetime Production</div>
+                    <div class="stat-value solar" id="lifetimeProduction">-- MWh</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">This Week</div>
+                    <div class="stat-value consumption" id="weeklyConsumption">-- kWh</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">This Month</div>
+                    <div class="stat-value consumption" id="monthlyConsumption">-- kWh</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Current Power</div>
+                    <div class="stat-value" id="currentPowerInsight">-- W</div>
+                </div>
+            </div>
+
+            <div class="stats-grid" style="margin-top: 1rem;">
+                <div class="stat-card">
+                    <div class="stat-label">L1 Voltage</div>
+                    <div class="stat-value" id="l1Voltage">-- V</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">L2 Voltage</div>
+                    <div class="stat-value" id="l2Voltage">-- V</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Daily Avg (Week)</div>
+                    <div class="stat-value" id="avgDaily">-- kWh</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Daily Avg (Month)</div>
+                    <div class="stat-value" id="avgDailyMonth">-- kWh</div>
+                </div>
+            </div>
+
+            <div class="chart-card" style="margin-top: 1.5rem;">
+                <div class="chart-header">
+                    <h3 class="chart-title">Consumption Breakdown</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="weekdayChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Data from Home Assistant • <a href="https://github.com/yourusername/home-energy-dashboard" target="_blank">View on GitHub</a></p>
+        </footer>
+    </div>
+
+    <script>
+        // Default sensor configuration
+        const DEFAULT_SENSORS = {
+            solarPower: 'sensor.enphase_current_power',
+            solarToday: 'sensor.solar_production_today_kwh',
+            solarLifetime: 'sensor.enphase_energy_lifetime',
+            consumptionDaily: 'sensor.sense_daily_energy',
+            consumptionPower: 'sensor.sense_energy',
+            consumptionWeekly: 'sensor.sense_weekly_energy',
+            consumptionMonthly: 'sensor.sense_monthly_energy',
+            l1Voltage: 'sensor.sense_l1_voltage',
+            l2Voltage: 'sensor.sense_l2_voltage',
+            netToday: 'sensor.net_energy_today'
+        };
+
+        // Configuration (loaded from localStorage)
+        let CONFIG = {
+            haUrl: '',
+            token: '',
+            refreshInterval: 30000,
+            sensors: { ...DEFAULT_SENSORS }
+        };
+
+        // Load config from localStorage
+        function loadConfig() {
+            const saved = localStorage.getItem('energyDashboardConfig');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                CONFIG = { ...CONFIG, ...parsed };
+                return true;
+            }
+            return false;
+        }
+
+        // Save config to localStorage
+        function saveConfig() {
+            localStorage.setItem('energyDashboardConfig', JSON.stringify(CONFIG));
+        }
+
+        // Show/hide setup modal
+        function showSetupModal() {
+            document.getElementById('setupModal').classList.remove('hidden');
+            // Populate fields with current config
+            document.getElementById('configHaUrl').value = CONFIG.haUrl || '';
+            document.getElementById('configToken').value = CONFIG.token || '';
+            document.getElementById('configSolarPower').value = CONFIG.sensors.solarPower || DEFAULT_SENSORS.solarPower;
+            document.getElementById('configSolarDaily').value = CONFIG.sensors.solarToday || DEFAULT_SENSORS.solarToday;
+            document.getElementById('configConsumptionPower').value = CONFIG.sensors.consumptionPower || DEFAULT_SENSORS.consumptionPower;
+            document.getElementById('configConsumptionDaily').value = CONFIG.sensors.consumptionDaily || DEFAULT_SENSORS.consumptionDaily;
+        }
+
+        function hideSetupModal() {
+            document.getElementById('setupModal').classList.add('hidden');
+        }
+
+        // Setup modal handlers
+        document.getElementById('saveConfig').addEventListener('click', () => {
+            CONFIG.haUrl = document.getElementById('configHaUrl').value.trim();
+            CONFIG.token = document.getElementById('configToken').value.trim();
+            
+            // Get sensor config if provided
+            const solarPower = document.getElementById('configSolarPower').value.trim();
+            const solarDaily = document.getElementById('configSolarDaily').value.trim();
+            const consumptionPower = document.getElementById('configConsumptionPower').value.trim();
+            const consumptionDaily = document.getElementById('configConsumptionDaily').value.trim();
+            
+            if (solarPower) CONFIG.sensors.solarPower = solarPower;
+            if (solarDaily) CONFIG.sensors.solarToday = solarDaily;
+            if (consumptionPower) CONFIG.sensors.consumptionPower = consumptionPower;
+            if (consumptionDaily) CONFIG.sensors.consumptionDaily = consumptionDaily;
+            
+            saveConfig();
+            hideSetupModal();
+            init();
+        });
+
+        document.getElementById('openSettings').addEventListener('click', showSetupModal);
+
+        // State
+        let todayChart = null;
+        let historyChart = null;
+        let weekdayChart = null;
+        let refreshTimer = null;
+
+        // API Helper
+        async function fetchHA(endpoint) {
+            const url = `${CONFIG.haUrl}/api/${endpoint}`;
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${CONFIG.token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('HA API Error:', error);
+                throw error;
+            }
+        }
+
+        // Get single sensor state
+        async function getSensorState(entityId) {
+            const data = await fetchHA(`states/${entityId}`);
+            return data;
+        }
+
+        // Get sensor history
+        async function getSensorHistory(entityId, startDate, endDate) {
+            const start = new Date(startDate).toISOString();
+            const end = new Date(endDate).toISOString();
+            const data = await fetchHA(`history/period/${start}?filter_entity_id=${entityId}&end_time=${end}`);
+            return data[0] || [];
+        }
+
+        // Update status indicator
+        function updateStatus(connected, message) {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            dot.classList.toggle('error', !connected);
+            text.textContent = message;
+        }
+
+        // Show error
+        function showError(message) {
+            const container = document.getElementById('errorContainer');
+            container.innerHTML = `<div class="error-message">${message}</div>`;
+        }
+
+        function clearError() {
+            document.getElementById('errorContainer').innerHTML = '';
+        }
+
+        // Format numbers
+        function formatPower(watts) {
+            if (watts === null || watts === undefined || isNaN(watts)) return '--';
+            if (watts >= 1000) {
+                return `${(watts / 1000).toFixed(1)}<span class="card-unit">kW</span>`;
+            }
+            return `${Math.round(watts)}<span class="card-unit">W</span>`;
+        }
+
+        function formatEnergy(kwh) {
+            if (kwh === null || kwh === undefined || isNaN(kwh)) return '--';
+            return kwh.toFixed(1);
+        }
+
+        // Update insights panel
+        async function updateInsights(currentPower) {
+            try {
+                const [weekly, monthly, l1, l2] = await Promise.all([
+                    getSensorState(CONFIG.sensors.consumptionWeekly).catch(() => ({ state: '0' })),
+                    getSensorState(CONFIG.sensors.consumptionMonthly).catch(() => ({ state: '0' })),
+                    getSensorState(CONFIG.sensors.l1Voltage).catch(() => ({ state: '0' })),
+                    getSensorState(CONFIG.sensors.l2Voltage).catch(() => ({ state: '0' }))
+                ]);
+
+                const weeklyKwh = parseFloat(weekly.state) || 0;
+                const monthlyKwh = parseFloat(monthly.state) || 0;
+                const l1V = parseFloat(l1.state) || 0;
+                const l2V = parseFloat(l2.state) || 0;
+
+                const now = new Date();
+                const dayOfWeek = now.getDay() || 7;
+                const dayOfMonth = now.getDate();
+
+                document.getElementById('weeklyConsumption').textContent = `${weeklyKwh.toFixed(1)} kWh`;
+                document.getElementById('monthlyConsumption').textContent = `${monthlyKwh.toFixed(1)} kWh`;
+                document.getElementById('currentPowerInsight').textContent = `${Math.round(currentPower)} W`;
+                document.getElementById('l1Voltage').textContent = `${l1V.toFixed(1)} V`;
+                document.getElementById('l2Voltage').textContent = `${l2V.toFixed(1)} V`;
+                document.getElementById('avgDaily').textContent = `${(weeklyKwh / dayOfWeek).toFixed(1)} kWh`;
+                document.getElementById('avgDailyMonth').textContent = `${(monthlyKwh / dayOfMonth).toFixed(1)} kWh`;
+
+                updateBreakdownChart(weeklyKwh, monthlyKwh);
+
+            } catch (error) {
+                console.error('Insights update error:', error);
+            }
+        }
+
+        // Update breakdown chart
+        function updateBreakdownChart(weekly, monthly) {
+            if (weekdayChart) {
+                const now = new Date();
+                const dayOfMonth = now.getDate();
+                const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                
+                const dailyAvg = monthly / dayOfMonth;
+                const projected = dailyAvg * daysInMonth;
+
+                weekdayChart.data.labels = ['This Week', 'This Month', 'Projected Month'];
+                weekdayChart.data.datasets[0].data = [weekly, monthly, projected];
+                weekdayChart.data.datasets[0].label = 'Consumption';
+                weekdayChart.data.datasets[0].backgroundColor = [
+                    'rgba(245, 158, 11, 0.8)',
+                    'rgba(245, 158, 11, 0.6)',
+                    'rgba(245, 158, 11, 0.3)'
+                ];
+                weekdayChart.update();
+            }
+        }
+
+        // Update live dashboard
+        async function updateLiveDashboard() {
+            try {
+                const [solarPower, solarToday, consumptionPower, consumptionDaily, netToday, lifetime] = await Promise.all([
+                    getSensorState(CONFIG.sensors.solarPower).catch(() => ({ state: '0' })),
+                    getSensorState(CONFIG.sensors.solarToday).catch(() => ({ state: '0' })),
+                    getSensorState(CONFIG.sensors.consumptionPower).catch(() => ({ state: 'unavailable' })),
+                    getSensorState(CONFIG.sensors.consumptionDaily).catch(() => ({ state: '0' })),
+                    getSensorState(CONFIG.sensors.netToday).catch(() => ({ state: '0' })),
+                    getSensorState(CONFIG.sensors.solarLifetime).catch(() => ({ state: '0' }))
+                ]);
+
+                const solarW = parseFloat(solarPower.state) || 0;
+                const solarKwh = parseFloat(solarToday.state) || 0;
+                const consumptionKwh = parseFloat(consumptionDaily.state) || 0;
+                const netKwh = parseFloat(netToday.state) || 0;
+                
+                let consumptionW = parseFloat(consumptionPower.state);
+                if (isNaN(consumptionW) || consumptionPower.state === 'unavailable' || consumptionPower.state === 'unknown') {
+                    consumptionW = consumptionKwh > 0 ? (consumptionKwh / 24) * 1000 : 0;
+                }
+                
+                const netW = solarW - consumptionW;
+
+                // Update cards
+                document.getElementById('solarPower').innerHTML = formatPower(solarW);
+                document.getElementById('consumption').innerHTML = formatPower(consumptionW);
+                
+                const netPowerEl = document.getElementById('netPower');
+                const netStatusEl = document.getElementById('netStatus');
+                netPowerEl.innerHTML = formatPower(Math.abs(netW));
+                netPowerEl.className = `card-value ${netW >= 0 ? 'positive' : 'negative'}`;
+                netStatusEl.textContent = netW >= 0 ? 'Exporting to grid' : 'Importing from grid';
+
+                // Update daily totals
+                document.getElementById('todayProduction').innerHTML = `${formatEnergy(solarKwh)}<span class="card-unit">kWh</span>`;
+                document.getElementById('todayConsumption').innerHTML = `${formatEnergy(consumptionKwh)}<span class="card-unit">kWh</span>`;
+                
+                const todayNetEl = document.getElementById('todayNet');
+                const todayNetStatusEl = document.getElementById('todayNetStatus');
+                todayNetEl.innerHTML = `${formatEnergy(Math.abs(netKwh))}<span class="card-unit">kWh</span>`;
+                todayNetEl.className = `card-value ${netKwh >= 0 ? 'positive' : 'negative'}`;
+                todayNetStatusEl.textContent = netKwh >= 0 ? 'Net exported' : 'Net imported';
+
+                // Update power flow
+                document.getElementById('flowSolar').textContent = `${Math.round(solarW)} W`;
+                document.getElementById('flowHome').textContent = `${Math.round(consumptionW)} W`;
+                document.getElementById('flowGrid').textContent = `${Math.round(Math.abs(netW))} W`;
+                document.getElementById('flowGrid').className = `flow-value ${netW >= 0 ? 'positive' : 'negative'}`;
+
+                // Animate flow lines
+                const solarLine = document.getElementById('flowLineSolar');
+                const gridLine = document.getElementById('flowLineGrid');
+                
+                solarLine.classList.toggle('active', solarW > 0);
+                gridLine.classList.remove('exporting', 'importing');
+                if (netW > 50) {
+                    gridLine.classList.add('active', 'exporting');
+                } else if (netW < -50) {
+                    gridLine.classList.add('active', 'importing');
+                }
+
+                // Update insights lifetime
+                const lifetimeKwh = parseFloat(lifetime.state) || 0;
+                document.getElementById('lifetimeProduction').textContent = `${(lifetimeKwh / 1000000).toFixed(2)} MWh`;
+
+                // Fetch additional stats for insights
+                updateInsights(consumptionW);
+
+                updateStatus(true, 'Live • Updated ' + new Date().toLocaleTimeString());
+                clearError();
+
+            } catch (error) {
+                console.error('Dashboard update error:', error);
+                updateStatus(false, 'Connection error');
+                showError(`Failed to fetch data: ${error.message}. Check your Home Assistant connection.`);
+            }
+        }
+
+        // Update today's chart with history
+        async function updateTodayChart() {
+            try {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const tomorrow = new Date(today);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+
+                // Fetch both solar and consumption history
+                const [solarHistory, consumptionHistory] = await Promise.all([
+                    getSensorHistory(CONFIG.sensors.solarPower, today.toISOString(), tomorrow.toISOString()),
+                    getSensorHistory(CONFIG.sensors.consumptionPower, today.toISOString(), tomorrow.toISOString())
+                ]);
+
+                if (solarHistory.length > 0 || consumptionHistory.length > 0) {
+                    // Sample solar every 10th point
+                    const solarSampled = solarHistory.filter((_, i) => i % 10 === 0);
+                    
+                    // Sample consumption more aggressively (every 60th point since it updates frequently)
+                    const consumptionSampled = consumptionHistory.filter((_, i) => i % 60 === 0);
+                    
+                    // Create unified time labels from solar data (primary)
+                    const labels = solarSampled.map(h => 
+                        new Date(h.last_changed).toLocaleTimeString('en-US', { 
+                            hour: 'numeric', 
+                            minute: '2-digit' 
+                        })
+                    );
+                    
+                    // Map solar data
+                    const solarData = solarSampled.map(h => parseFloat(h.state) || 0);
+                    
+                    // Map consumption data to nearest time points
+                    const consumptionData = solarSampled.map(solarPoint => {
+                        const solarTime = new Date(solarPoint.last_changed).getTime();
+                        // Find closest consumption reading
+                        let closest = consumptionSampled[0];
+                        let minDiff = Infinity;
+                        for (const c of consumptionSampled) {
+                            const diff = Math.abs(new Date(c.last_changed).getTime() - solarTime);
+                            if (diff < minDiff) {
+                                minDiff = diff;
+                                closest = c;
+                            }
+                        }
+                        return closest ? (parseFloat(closest.state) || 0) : 0;
+                    });
+                    
+                    todayChart.data.labels = labels;
+                    todayChart.data.datasets[0].data = solarData;
+                    todayChart.data.datasets[1].data = consumptionData;
+                    todayChart.update();
+                }
+            } catch (error) {
+                console.error('Chart update error:', error);
+            }
+        }
+
+        // Initialize today's chart
+        function initTodayChart() {
+            const ctx = document.getElementById('todayChart').getContext('2d');
+            todayChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Solar Production',
+                            data: [],
+                            borderColor: '#22c55e',
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Consumption',
+                            data: [],
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#888890',
+                                font: { family: 'Space Grotesk' }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: '#2a2a2e' },
+                            ticks: { color: '#888890' }
+                        },
+                        y: {
+                            grid: { color: '#2a2a2e' },
+                            ticks: { 
+                                color: '#888890',
+                                callback: (value) => value + ' W'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initialize history chart
+        function initHistoryChart() {
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            historyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Production',
+                            data: [],
+                            backgroundColor: 'rgba(34, 197, 94, 0.8)'
+                        },
+                        {
+                            label: 'Consumption',
+                            data: [],
+                            backgroundColor: 'rgba(245, 158, 11, 0.8)'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#888890',
+                                font: { family: 'Space Grotesk' }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: '#2a2a2e' },
+                            ticks: { color: '#888890' }
+                        },
+                        y: {
+                            grid: { color: '#2a2a2e' },
+                            ticks: { 
+                                color: '#888890',
+                                callback: (value) => value + ' kWh'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initialize weekday chart
+        function initWeekdayChart() {
+            const ctx = document.getElementById('weekdayChart').getContext('2d');
+            weekdayChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+                    datasets: [{
+                        label: 'Consumption',
+                        data: [0, 0, 0, 0, 0, 0, 0],
+                        backgroundColor: 'rgba(245, 158, 11, 0.8)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: '#2a2a2e' },
+                            ticks: { color: '#888890' }
+                        },
+                        y: {
+                            grid: { color: '#2a2a2e' },
+                            ticks: { 
+                                color: '#888890',
+                                callback: (value) => value + ' kWh'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Navigation
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                const viewId = btn.dataset.view + 'View';
+                document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+                document.getElementById(viewId).classList.add('active');
+            });
+        });
+
+        // Set default dates for history
+        function initDatePickers() {
+            const end = new Date();
+            const start = new Date();
+            start.setDate(start.getDate() - 7);
+
+            document.getElementById('endDate').value = end.toISOString().split('T')[0];
+            document.getElementById('startDate').value = start.toISOString().split('T')[0];
+        }
+
+        // Load history button
+        document.getElementById('loadHistory').addEventListener('click', async () => {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                showError('Please select both start and end dates');
+                return;
+            }
+
+            try {
+                document.getElementById('historyProduction').textContent = 'Loading...';
+                document.getElementById('historyConsumption').textContent = 'Loading...';
+                
+                showError('Historical aggregation requires recorder data. Check Home Assistant for detailed history.');
+                
+            } catch (error) {
+                showError(`Failed to load history: ${error.message}`);
+            }
+        });
+
+        // Initialize
+        async function init() {
+            // Check if config exists
+            if (!CONFIG.token) {
+                showSetupModal();
+                return;
+            }
+
+            hideSetupModal();
+
+            initTodayChart();
+            initHistoryChart();
+            initWeekdayChart();
+            initDatePickers();
+
+            // Clear any existing timer
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+            }
+
+            // Initial update
+            await updateLiveDashboard();
+            await updateTodayChart();
+
+            // Set up refresh interval
+            refreshTimer = setInterval(updateLiveDashboard, CONFIG.refreshInterval);
+            setInterval(updateTodayChart, 60000);
+        }
+
+        // Start
+        if (loadConfig()) {
+            init();
+        } else {
+            showSetupModal();
+        }
+    </script>
+</body>
+</html>
