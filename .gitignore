@@ -10,3 +10,7 @@ Thumbs.db
 
 # Local config (if someone creates one)
 config.local.js
+
+# Node.js
+node_modules/
+coverage/
